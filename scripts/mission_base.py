@@ -178,21 +178,16 @@ class MissionBase(Node):
         )
 
     def _stop_navigation_observers(self) -> None:
-        if self._tf_listener is not None:
-            try:
-                self._tf_listener.unregister()
-            except Exception:
-                pass
-            self._tf_listener = None
-        self._tf_buffer = None
-        for attribute in ("_scan_subscription", "_odom_subscription"):
-            subscription = getattr(self, attribute, None)
-            setattr(self, attribute, None)
-            if subscription is not None:
-                try:
-                    self.destroy_subscription(subscription)
-                except Exception:
-                    pass
+        """Reseta medições sem destruir entidades dentro de callbacks.
+
+        O MultiThreadedExecutor pode estar montando sua wait-set enquanto o
+        callback de conclusão roda. Desregistrar o TransformListener ou
+        destruir subscriptions nesse ponto deixa event handlers marcados para
+        destruição ainda referenciados pela wait-set e derruba o processo com
+        ``InvalidHandle``. Os observadores são pequenos e podem permanecer no
+        nó; a missão seguinte exige amostras novas porque os timestamps são
+        zerados aqui.
+        """
         self._last_scan_monotonic = None
         self._last_odom_monotonic = None
 
@@ -232,11 +227,10 @@ class MissionBase(Node):
         )
 
     def stop_mission_watchdog(self) -> None:
-        """Cancela o temporizador de segurança da missão."""
+        """Cancela o watchdog sem destruir sua entidade durante callback."""
         if hasattr(self, "_watchdog_timer") and self._watchdog_timer is not None:
             try:
                 self._watchdog_timer.cancel()
-                self.destroy_timer(self._watchdog_timer)
             except Exception:
                 pass
             self._watchdog_timer = None
@@ -375,7 +369,6 @@ class MissionBase(Node):
         if timer is not None:
             try:
                 timer.cancel()
-                self.destroy_timer(timer)
             except Exception:
                 pass
 
@@ -408,7 +401,6 @@ class MissionBase(Node):
         if timer is not None:
             try:
                 timer.cancel()
-                self.destroy_timer(timer)
             except Exception:
                 pass
 

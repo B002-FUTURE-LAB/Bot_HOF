@@ -1,0 +1,4 @@
+MODEL:standard
+VERSION:2.0.2
+ROS:Jazzy
+HOSTNAME:turtlebot4

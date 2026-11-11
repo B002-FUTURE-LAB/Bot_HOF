@@ -4,20 +4,24 @@ import json
 import sys
 
 import rclpy
-from nav2_msgs.action import NavigateToPose
-from rclpy.action import ActionClient
+from action_msgs.srv import CancelGoal
 from rclpy.node import Node
 
 
 def main() -> int:
     rclpy.init()
     node = Node("future_lab_cancel_navigation")
-    client = ActionClient(node, NavigateToPose, "/navigate_to_pose")
+    # rclpy.ActionClient não expõe uma API pública para cancelar todas as
+    # metas. A tentativa anterior usava async_cancel_all_goals(), método que
+    # não existe e deixava a meta antiga executando. O protocolo ROS 2 define
+    # este serviço para cada action; GoalInfo vazio significa "todas as
+    # metas" e a resposta informa quantas foram efetivamente canceladas.
+    client = node.create_client(CancelGoal, "/navigate_to_pose/_action/cancel_goal")
     try:
-        if not client.wait_for_server(timeout_sec=8.0):
-            print(json.dumps({"ok": False, "error": "Action /navigate_to_pose indisponível."}))
+        if not client.wait_for_service(timeout_sec=8.0):
+            print(json.dumps({"ok": False, "error": "Serviço de cancelamento do /navigate_to_pose indisponível."}))
             return 3
-        future = client.async_cancel_all_goals()
+        future = client.call_async(CancelGoal.Request())
         rclpy.spin_until_future_complete(node, future, timeout_sec=10.0)
         response = future.result()
         if response is None:
@@ -26,7 +30,7 @@ def main() -> int:
         print(json.dumps({"ok": True, "goals_canceling": len(response.goals_canceling)}))
         return 0
     finally:
-        client.destroy()
+        node.destroy_client(client)
         node.destroy_node()
         rclpy.shutdown()
 

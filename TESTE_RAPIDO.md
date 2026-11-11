@@ -1,143 +1,63 @@
-# Teste Rápido - TurtleBot4 no Mundo do Laboratório
+# Quick Start — TurtleBot 4 in the Laboratory World
 
-## Opção 1: Script Automático (Recomendado)
+## Option 1: Automated Script (Recommended)
 
-Execute no terminal:
+Run in a terminal:
 
 ```bash
 ./sim/run_lab_world.sh
 ```
 
-Ou com parâmetros customizados:
+Or with custom arguments:
 
 ```bash
-# Apenas sim + SLAM (sem Nav2)
+# Simulation + SLAM only (without Nav2)
 ./sim/run_lab_world.sh true false
 
-# Com Nav2
+# With SLAM + Nav2
 ./sim/run_lab_world.sh true true
 
-# Com posição inicial customizada
+# With custom initial pose (x=-1.0, y=0.0, yaw=1.57)
 ./sim/run_lab_world.sh true true -1.0 0.0 1.57
 ```
 
-Isso vai:
-- Iniciar o contêiner Docker
-- Abrir Gazebo (Harmonic) com o mundo do laboratório
-- Abrir RViz
-- Iniciar o TurtleBot4 com SLAM + Nav2 (se habilitado)
+This script:
+- Starts the Docker container
+- Opens Gazebo Harmonic with the B002 laboratory world (`sim/worlds/my_lab.sdf`)
+- Opens RViz
+- Launches TurtleBot 4 with SLAM and Nav2 (if enabled)
 
-## Opção 2: Manual (Passo a Passo)
+## Option 2: Manual Step-by-Step
 
-### 1. Iniciar o contêiner:
+1. **Start the container:**
+   ```bash
+   ./sim/run_docker.sh
+   ```
+2. **Inside the container:**
+   ```bash
+   source /opt/ros/jazzy/setup.bash
+   ls -la /root/worlds/
+   ./sim/run_lab_world.sh true true 0.0 0.0 0.0
+   ```
 
-```bash
-./sim/run_docker.sh
-```
+## Useful Commands
 
-### 2. Dentro do contêiner:
-
-```bash
-# Source do ROS
-source /opt/ros/jazzy/setup.bash
-
-# Verificar se o mundo está disponível
-ls -la /root/worlds/
-
-# Lançar o TurtleBot4 no mundo do laboratório
-./sim/run_lab_world.sh true true 0.0 0.0 0.0
-```
-
-Ou manualmente:
-
-```bash
-ros2 launch turtlebot4_gz_bringup turtlebot4_gz.launch.py \
-  world:=my_lab \
-  rviz:=true \
-  slam:=true \
-  nav2:=true \
-  use_sim_time:=true
-```
-
-## O que esperar:
-
-1. **Gazebo (Harmonic)** abre mostrando:
-   - Sala 8.7m x 5.3m (dimensões reais)
-   - Bancada Festo/Siemens (2.27m x 0.8m) com módulos
-   - Equipamentos (esteira verde, prensa vermelha, elevador, sensor)
-   - PLCs e HMIs na estrutura vertical
-   - Pilar cilíndrico branco
-   - TurtleBot4 no centro (ou posição especificada)
-
-2. **RViz** abre mostrando:
-   - Visualização do robô
-   - Mapas (quando SLAM começar)
-   - Navegação (quando Nav2 estiver ativo)
-
-## Comandos úteis:
-
-### Verificar tópicos:
-```bash
-ros2 topic list
-ros2 topic hz /scan
-ros2 topic echo /odom
-```
-
-### Verificar TF:
-```bash
-ros2 run tf2_ros tf2_echo odom base_link
-ros2 run tf2_ros tf2_echo map base_link
-```
-
-### Diagnóstico completo:
-```bash
-./scripts/check_tf_scan.sh
-```
-
-### Teleop (controlar o robô):
-```bash
-ros2 run teleop_twist_keyboard teleop_twist_keyboard
-```
-
-### Salvar mapa:
-```bash
-ros2 run nav2_map_server map_saver_cli -f /root/maps/lab_map
-```
-
-## Troubleshooting:
-
-- **Gazebo não abre**: Verifique `DISPLAY` e permissões X11
-- **Mundo não carrega**: Verifique `GZ_SIM_RESOURCE_PATH` (ou `IGN_GAZEBO_RESOURCE_PATH` para compatibilidade) e se `sim/worlds/my_lab.sdf` existe
-- **Robô não aparece**: Verifique os logs: `ros2 topic echo /robot_description`
-- **Nav2 não inicia**: Veja `NAV2_FIX.md` para diagnóstico detalhado
-- **TF não funciona**: Execute `./scripts/check_tf_scan.sh` para diagnóstico
-
-## Parâmetros do script:
-
-```bash
-./sim/run_lab_world.sh [SLAM] [NAV2] [X] [Y] [YAW]
-```
-
-- `SLAM`: `true` ou `false` (padrão: `true`)
-- `NAV2`: `true` ou `false` (padrão: `true`)
-- `X`: Posição X inicial em metros (padrão: `0.0`)
-- `Y`: Posição Y inicial em metros (padrão: `0.0`)
-- `YAW`: Orientação inicial em radianos (padrão: `0.0`)
-
-## Exemplos:
-
-```bash
-# Apenas simulação (sem SLAM, sem Nav2)
-./sim/run_lab_world.sh false false
-
-# SLAM sem Nav2 (recomendado para testar primeiro)
-./sim/run_lab_world.sh true false
-
-# Tudo ativado
-./sim/run_lab_world.sh true true
-
-# Posição inicial customizada (x=-1.0, y=0.0, yaw=90°)
-./sim/run_lab_world.sh true true -1.0 0.0 1.57
-```
-ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel_unstamped
-ros2 launch turtlebot4_navigation slam.launch.py sync:=true rviz:=false
+- **Check topics:**
+  ```bash
+  ros2 topic list
+  ros2 topic hz /scan
+  ros2 topic echo /odom
+  ```
+- **Check TF:**
+  ```bash
+  ros2 run tf2_ros tf2_echo odom base_link
+  ros2 run tf2_ros tf2_echo map base_link
+  ```
+- **Keyboard Teleop:**
+  ```bash
+  ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -r cmd_vel:=/cmd_vel_unstamped
+  ```
+- **Save Map:**
+  ```bash
+  ros2 run nav2_map_server map_saver_cli -f /root/maps/lab_map
+  ```

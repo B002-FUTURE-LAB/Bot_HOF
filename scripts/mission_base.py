@@ -21,7 +21,7 @@ from rclpy.time import Time
 from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import Odometry
 from nav2_msgs.action import NavigateToPose
-from nav2_msgs.srv import ClearEntireCostmap
+from nav2_msgs.srv import ClearEntireCostmap, ManageLifecycleNodes
 from irobot_create_msgs.action import Dock, Undock
 from irobot_create_msgs.msg import DockStatus
 from sensor_msgs.msg import LaserScan
@@ -125,6 +125,16 @@ class MissionBase(Node):
         self._clear_local_client = self.create_client(
             ClearEntireCostmap,
             "/local_costmap/clear_entirely_local_costmap",
+            callback_group=self._cb_group,
+        )
+        # Quando a Create 3 entra na dock ela deixa de publicar o TF
+        # odom->base_link e o RPLidar pode parar. Manter os costmaps ativos
+        # nesse estado faz o Nav2 repetir consultas TF impossíveis e crescer o
+        # log sem limite. PAUSE preserva o processo e sua geração; RESUME é
+        # feito logo após o undock, antes de qualquer meta de navegação.
+        self._nav_lifecycle_client = self.create_client(
+            ManageLifecycleNodes,
+            "/lifecycle_manager_navigation/manage_nodes",
             callback_group=self._cb_group,
         )
 
@@ -522,8 +532,8 @@ class MissionBase(Node):
             return
 
         if self._is_docked is False:
-            self.get_logger().info("Robô já undockado — pulando undock")
-            done_cb(True)
+            self.get_logger().info("Robô já undockado — garantindo Nav2 ativo antes da missão")
+            self._resume_nav2_after_undock(done_cb)
             return
 
         if not self.undock_client.wait_for_server(timeout_sec=3.0):
@@ -561,8 +571,7 @@ class MissionBase(Node):
                         self.get_logger().info(
                             "Undock confirmado; aguardando estabilização e dados frescos antes do próximo goal"
                         )
-                        self.clear_costmaps()
-                        done_cb(True)
+                        self._resume_nav2_after_undock(done_cb)
 
                     gh.get_result_async().add_done_callback(_on_undock_result)
                 except Exception as exc:
@@ -573,6 +582,73 @@ class MissionBase(Node):
         except Exception as exc:
             self.get_logger().error(f"Exceção ao iniciar undock: {exc}")
             done_cb(False)
+
+    def _resume_nav2_after_undock(self, done_cb: Callable[[bool], None]) -> None:
+        """Retoma a mesma geração Nav2, se ela foi pausada na dock.
+
+        Se o servidor de ação já está disponível, o Nav2 nunca foi pausado e
+        não se envia um RESUME redundante. Nenhuma meta é enviada aqui.
+        """
+        if self.nav_client.wait_for_server(timeout_sec=0.2):
+            self.clear_costmaps()
+            done_cb(True)
+            return
+        if not self._nav_lifecycle_client.wait_for_service(timeout_sec=3.0):
+            self.get_logger().error(
+                "Nav2 está indisponível e /lifecycle_manager_navigation/manage_nodes não respondeu"
+            )
+            done_cb(False)
+            return
+        request = ManageLifecycleNodes.Request()
+        request.command = ManageLifecycleNodes.Request.RESUME
+        future = self._nav_lifecycle_client.call_async(request)
+
+        def _on_resume(result_future):
+            try:
+                response = result_future.result()
+                if response.success is not True:
+                    self.get_logger().error("Nav2 recusou RESUME após undock")
+                    done_cb(False)
+                    return
+                if not self.nav_client.wait_for_server(timeout_sec=5.0):
+                    self.get_logger().error("Nav2 confirmou RESUME, mas /navigate_to_pose não reapareceu")
+                    done_cb(False)
+                    return
+                self.get_logger().info("Nav2 retomado na mesma geração após undock")
+                self.clear_costmaps()
+                done_cb(True)
+            except Exception as exc:
+                self.get_logger().error(f"Falha ao retomar Nav2 após undock: {exc}")
+                done_cb(False)
+
+        future.add_done_callback(_on_resume)
+
+    def _pause_nav2_after_dock(self, done_cb: Callable[[], None]) -> None:
+        """Pausa Nav2 depois do dock sem encerrar a geração em execução."""
+        if not self._nav_lifecycle_client.wait_for_service(timeout_sec=3.0):
+            self.get_logger().error(
+                "Dock físico confirmado, mas não foi possível pausar Nav2: serviço lifecycle ausente"
+            )
+            done_cb()
+            return
+        request = ManageLifecycleNodes.Request()
+        request.command = ManageLifecycleNodes.Request.PAUSE
+        future = self._nav_lifecycle_client.call_async(request)
+
+        def _on_pause(result_future):
+            try:
+                response = result_future.result()
+                if response.success is True:
+                    self.get_logger().info(
+                        "Nav2 pausado na dock; processo preservado e pronto para RESUME no próximo undock"
+                    )
+                else:
+                    self.get_logger().error("Dock físico confirmado, mas Nav2 recusou PAUSE")
+            except Exception as exc:
+                self.get_logger().error(f"Dock físico confirmado, mas PAUSE do Nav2 falhou: {exc}")
+            done_cb()
+
+        future.add_done_callback(_on_pause)
 
     def dock(self, done_cb: Callable[[bool], None], tries_left: Optional[int] = None) -> None:
         """Executa dock físico na estação de recarga."""
@@ -615,7 +691,7 @@ class MissionBase(Node):
                 self._is_docked = True
                 self._last_dock_status_monotonic = time.monotonic()
                 self.get_logger().info("✅ Docking concluído com SUCESSO!")
-                done_cb(True)
+                self._pause_nav2_after_dock(lambda: done_cb(True))
             elif tries_left > 1:
                 self.dock(done_cb, tries_left - 1)
             else:

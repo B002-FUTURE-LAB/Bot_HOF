@@ -18,8 +18,25 @@ Palettenlager = "opc.tcp://192.168.97.102:4840"
 Handling      = "opc.tcp://192.168.97.103:4840"
 Presse_Press  = "opc.tcp://192.168.97.104:4840"
 
-user = "MES"
-password = "training"
+import os
+from pathlib import Path
+
+def _load_env():
+    for candidate in (
+        Path(__file__).resolve().parent.parent.parent / "future_lab_control_center" / ".env",
+        Path(__file__).resolve().parent.parent.parent / ".env",
+    ):
+        if candidate.exists():
+            for line in candidate.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip())
+            break
+
+_load_env()
+user = os.getenv("OPCUA_USER", "MES")
+password = os.getenv("OPCUA_PASSWORD", "")
 
 root_ControlStation = None
 root_PalletStore    = None
